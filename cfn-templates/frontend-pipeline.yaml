@@ -1,0 +1,157 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  CodestarConnId:
+    Type: "String"
+  GitHubUser:
+    Type: "String"
+  GitHubRepo:
+    Type: "String"
+  GitHubBranch:
+    Type: "String"
+    Default: "main"
+
+Resources:
+  ArtifactsBucket:
+    Type: "AWS::S3::Bucket"
+
+  FrontendDeployProject:
+    Type: "AWS::CodeBuild::Project"
+    Properties:
+      Name: !Sub "${AWS::StackName}-deploy-project"
+      Artifacts:
+        Type: "CODEPIPELINE"
+      Source:
+        Type: "CODEPIPELINE"
+        BuildSpec: |
+          version: 0.2
+          phases:
+            build:
+              commands:
+                - echo Building frontend
+                - aws s3 cp ./frontend s3://$CLIENT_BUCKET --recursive
+      Environment:
+        ComputeType: "BUILD_GENERAL1_SMALL"
+        Image: "aws/codebuild/standard:6.0"
+        Type: "LINUX_CONTAINER"
+        EnvironmentVariables:
+          - Name: "CLIENT_BUCKET"
+            Value: !ImportValue "ClientBucket"
+      ServiceRole: !Ref "CodeBuildServiceRole"
+
+  CodeBuildServiceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      Path: "/"
+      RoleName: !Sub "${AWS::StackName}-code-build-role"
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AWSLambda_FullAccess"
+      Policies:
+        - PolicyName: !Sub "${AWS::StackName}-code-build-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+                  - "s3:ListObjects"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${ArtifactsBucket}"
+                  - !Sub "arn:${AWS::Partition}:s3:::${ArtifactsBucket}/*"
+                  - !Sub
+                    - "arn:${AWS::Partition}:s3:::${ClientBucket}"
+                    - ClientBucket: !ImportValue "ClientBucket"
+                  - !Sub
+                    - "arn:${AWS::Partition}:s3:::${ClientBucket}/*"
+                    - ClientBucket: !ImportValue "ClientBucket"
+
+  FrontendPipeline:
+    Type: "AWS::CodePipeline::Pipeline"
+    Properties:
+      Name: !Sub "${AWS::StackName}-code-pipeline"
+      ArtifactStore:
+        Type: "S3"
+        Location: !Ref "ArtifactsBucket"
+      RoleArn: !GetAtt "CodePipelineServiceRole.Arn"
+      Stages:
+        - Name: "Source"
+          Actions:
+            - Name: "ApplicationSource"
+              ActionTypeId:
+                Category: "Source"
+                Owner: "AWS"
+                Provider: "CodeStarSourceConnection"
+                Version: "1"
+              OutputArtifacts:
+                - Name: "SourceArtifact"
+              Configuration:
+                ConnectionArn: !Sub "arn:${AWS::Partition}:codestar-connections:${AWS::Region}:${AWS::AccountId}:connection/${CodestarConnId}"
+                FullRepositoryId: !Sub "${GitHubUser}/${GitHubRepo}"
+                BranchName: !Ref "GitHubBranch"
+              RunOrder: 1
+        - Name: "Deploy"
+          Actions:
+            - Name: "FrontendDeployStep"
+              ActionTypeId:
+                Category: "Build"
+                Owner: "AWS"
+                Provider: "CodeBuild"
+                Version: "1"
+              InputArtifacts:
+                - Name: "SourceArtifact"
+              Configuration:
+                ProjectName: !Ref "FrontendDeployProject"
+              RunOrder: 1
+
+  CodePipelineServiceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      Path: "/"
+      RoleName: !Sub "${AWS::StackName}-code-pipeline-role"
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "codepipeline.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub "${AWS::StackName}-code-pipeline-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+                  - "s3:ListObjects"
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${ArtifactsBucket}/*"
+              - Effect: "Allow"
+                Action:
+                  - "codebuild:BatchGetBuilds"
+                  - "codebuild:StartBuild"
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                  - "codestar-connections:UseConnection"
+                Resource: "*"
