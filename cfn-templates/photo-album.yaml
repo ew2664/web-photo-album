@@ -231,6 +231,25 @@ Resources:
       RestApiId: !Ref "Api"
       StageName: "v1"
 
+  ApiKey:
+    Type: "AWS::ApiGateway::ApiKey"
+    Properties:
+      Enabled: true
+
+  ApiUsagePlan:
+    Type: "AWS::ApiGateway::UsagePlan"
+    Properties:
+      ApiStages:
+        - ApiId: !Ref "Api"
+          Stage: "v1"
+
+  ApiUsagePlanKey:
+    Type: "AWS::ApiGateway::UsagePlanKey"
+    Properties:
+      KeyId: !Ref "ApiKey"
+      KeyType: "API_KEY"
+      UsagePlanId: !Ref "ApiUsagePlan"
+
   ApiSearchResource:
     Type: "AWS::ApiGateway::Resource"
     Properties:
@@ -242,12 +261,13 @@ Resources:
     Type: "AWS::ApiGateway::Method"
     Properties:
       AuthorizationType: "NONE"
-      ApiKeyRequired: false
+      ApiKeyRequired: true
       HttpMethod: "GET"
       RestApiId: !Ref "Api"
       ResourceId: !Ref "ApiSearchResource"
       RequestParameters:
         "method.request.querystring.q": true
+        "method.request.header.x-api-key": false
       Integration:
         Type: "AWS_PROXY"
         IntegrationHttpMethod: "POST"
@@ -266,7 +286,7 @@ Resources:
     Type: "AWS::ApiGateway::Method"
     Properties:
       AuthorizationType: "NONE"
-      ApiKeyRequired: false
+      ApiKeyRequired: true
       HttpMethod: "PUT"
       RestApiId: !Ref "Api"
       ResourceId: !Ref "ApiUploadResource"
@@ -278,6 +298,7 @@ Resources:
         "method.request.header.key": true
         "method.request.header.Content-Type": false
         "method.request.header.x-amz-meta-customLabels": false
+        "method.request.header.x-api-key": false
       Integration:
         Type: "AWS"
         Credentials: !GetAtt "ApiUploadPutIntegrationRole.Arn"

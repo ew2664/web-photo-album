@@ -45,10 +45,9 @@ function speak() {
 
     recognition.start();
 
-    searchId.onclick = function() {
+    searchId.onclick = function () {
       recognition.stop();
-    }
-    
+    };
   } else {
     console.warn("No support for speech-to-text");
   }
@@ -62,25 +61,33 @@ function searchWords() {
 }
 
 function displayPhotos(words) {
-  sdk.searchGet({ q: words }).then((response) => {
-    imgs.innerHTML = "";
-    var results = response.data.results;
-    console.log(response);
-    if (results && results.length > 0) {
-      msg.innerHTML = "Showing your results";
-      for (var r of results) {
-        console.log(r);
-        var img = document.createElement("img");
-        img.src = r["url"];
-        img.width = 100;
-        img.height = 100;
-        console.log(img);
-        imgs.appendChild(img);
+  sdk
+    .searchGet({
+      q: words,
+      "x-api-key": "89jZNsHr4T2nclZRBHMeb8ddhHdour8t91FNhlZM",
+    })
+    .then((response) => {
+      imgs.innerHTML = "";
+      var results = response.data.results;
+      console.log(response);
+      if (results && results.length > 0) {
+        msg.innerHTML = "Showing your results";
+        for (var r of results) {
+          console.log(r);
+          var img = document.createElement("img");
+          img.src = r["url"];
+          img.width = 100;
+          img.height = 100;
+          console.log(img);
+          imgs.appendChild(img);
+        }
+      } else {
+        msg.innerHTML = "No results found.";
       }
-    } else {
-      msg.innerHTML = "No results found.";
-    }
-  });
+    })
+    .catch((error) => {
+      msg.innerHTML = "Error: " + error;
+    });
 }
 
 function uploadImg() {
@@ -100,6 +107,7 @@ function uploadImg() {
           key: file.name,
           "Content-Type": file.type,
           "x-amz-meta-customLabels": labels.value,
+          "x-api-key": "89jZNsHr4T2nclZRBHMeb8ddhHdour8t91FNhlZM",
         },
         file
       )
