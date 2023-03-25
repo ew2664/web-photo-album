@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  CodestarConnId:
+    Type: "String"
+  GitHubUser:
+    Type: "String"
+  GitHubRepo:
+    Type: "String"
+  GitHubBranch:
+    Type: "String"
+    Default: "main"
+  LambdaCodeSourceBucket:
+    Type: "String"
+
+Resources:
+  ArtifactsBucket:
+    Type: "AWS::S3::Bucket"
+
+  LambdaBuildProject:
+    Type: "AWS::CodeBuild::Project"
+    Properties:
+      Name: !Sub "${AWS::StackName}-build-project"
+      Artifacts:
+        Type: "CODEPIPELINE"
+      Source:
+        Type: "CODEPIPELINE"
+        BuildSpec: |
+          version: 0.2
+          phases:
+            build:
+              commands:
+                - (cd lambda-functions && ./package.sh index-photos)
+                - (cd lambda-functions && ./package.sh search-photos)
+            post_build:
+              commands:
+                - aws s3 cp lambda-functions/index-photos.zip s3://$LAMBDA_CODE_SOURCE_BUCKET
+                - aws s3 cp lambda-functions/search-photos.zip s3://$LAMBDA_CODE_SOURCE_BUCKET
+          artifacts:
+            base-directory: lambda-functions
+            files:
+              - '*.zip'
+      Environment:
+        ComputeType: "BUILD_GENERAL1_SMALL"
+        Image: "aws/codebuild/standard:6.0"
+        Type: "LINUX_CONTAINER"
+        EnvironmentVariables:
+          - Name: "LAMBDA_CODE_SOURCE_BUCKET"
+            Value: !Ref "LambdaCodeSourceBucket"
+      ServiceRole: !Ref "CodeBuildServiceRole"
+
+  LambdaDeployProject:
+    Type: "AWS::CodeBuild::Project"
+    Properties:
+      Name: !Sub "${AWS::StackName}-deploy-project"
+      Artifacts:
+        Type: "CODEPIPELINE"
+      Source:
+        Type: "CODEPIPELINE"
+        BuildSpec: |
+          version: 0.2
+          phases:
+            build:
+              commands:
+                - aws lambda update-function-code --function-name index-photos --zip-file fileb://index-photos.zip
+                - aws lambda update-function-code --function-name search-photos --zip-file fileb://search-photos.zip
+      Environment:
+        ComputeType: "BUILD_GENERAL1_SMALL"
+        Image: "aws/codebuild/standard:6.0"
+        Type: "LINUX_CONTAINER"
+      ServiceRole: !Ref "CodeBuildServiceRole"
+
+  CodeBuildServiceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      Path: "/"
+      RoleName: !Sub "${AWS::StackName}-code-build-role"
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AWSLambda_FullAccess"
+      Policies:
+        - PolicyName: !Sub "${AWS::StackName}-code-build-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+                  - "s3:ListObjects"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${ArtifactsBucket}"
+                  - !Sub "arn:${AWS::Partition}:s3:::${ArtifactsBucket}/*"
+                  - !Sub "arn:${AWS::Partition}:s3:::${LambdaCodeSourceBucket}"
+                  - !Sub "arn:${AWS::Partition}:s3:::${LambdaCodeSourceBucket}/*"
+
+  LambdaPipeline:
+    Type: "AWS::CodePipeline::Pipeline"
+    Properties:
+      Name: !Sub "${AWS::StackName}-code-pipeline"
+      ArtifactStore:
+        Type: "S3"
+        Location: !Ref "ArtifactsBucket"
+      RoleArn: !GetAtt "CodePipelineServiceRole.Arn"
+      Stages:
+        - Name: "Source"
+          Actions:
+            - Name: "ApplicationSource"
+              ActionTypeId:
+                Category: "Source"
+                Owner: "AWS"
+                Provider: "CodeStarSourceConnection"
+                Version: "1"
+              OutputArtifacts:
+                - Name: "SourceArtifact"
+              Configuration:
+                ConnectionArn: !Sub "arn:${AWS::Partition}:codestar-connections:${AWS::Region}:${AWS::AccountId}:connection/${CodestarConnId}"
+                FullRepositoryId: !Sub "${GitHubUser}/${GitHubRepo}"
+                BranchName: !Ref "GitHubBranch"
+              RunOrder: 1
+        - Name: "Build"
+          Actions:
+            - Name: "LambdaBuildStep"
+              ActionTypeId:
+                Category: "Build"
+                Owner: "AWS"
+                Provider: "CodeBuild"
+                Version: "1"
+              InputArtifacts:
+                - Name: "SourceArtifact"
+              OutputArtifacts:
+                - Name: "BuildArtifact"
+              Configuration:
+                ProjectName: !Ref "LambdaBuildProject"
+              RunOrder: 1
+        - Name: "Deploy"
+          Actions:
+            - Name: "LambdaDeployStep"
+              ActionTypeId:
+                Category: "Build"
+                Owner: "AWS"
+                Provider: "CodeBuild"
+                Version: "1"
+              InputArtifacts:
+                - Name: "BuildArtifact"
+              Configuration:
+                ProjectName: !Ref "LambdaDeployProject"
+              RunOrder: 1
+
+  CodePipelineServiceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      Path: "/"
+      RoleName: !Sub "${AWS::StackName}-code-pipeline-role"
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "codepipeline.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub "${AWS::StackName}-code-pipeline-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+                  - "s3:ListObjects"
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${ArtifactsBucket}/*"
+              - Effect: "Allow"
+                Action:
+                  - "codebuild:BatchGetBuilds"
+                  - "codebuild:StartBuild"
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                  - "codestar-connections:UseConnection"
+                Resource: "*"
