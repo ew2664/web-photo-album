@@ -1,0 +1,354 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  LexBotId:
+    Type: "String"
+  LexBotAliasId:
+    Type: "String"
+  LambdaCodeSourceBucket:
+    Type: "String"
+  ClientBucketName:
+    Type: "String"
+    Default: "photo-album-client"
+  AssetsBucketName:
+    Type: "String"
+    Default: "photo-album-assets"
+  IndexLambdaName:
+    Type: "String"
+    Default: "index-photos"
+  SearchLambdaName:
+    Type: "String"
+    Default: "search-photos"
+  PhotosDomainName:
+    Type: "String"
+    Default: "photos"
+  ApiName:
+    Type: "String"
+    Default: "photo-album-api"
+
+Resources:
+  PhotosDomain:
+    Type: "AWS::OpenSearchService::Domain"
+    Properties:
+      DomainName: !Ref "PhotosDomainName"
+      ClusterConfig:
+        InstanceType: "t3.small.search"
+        InstanceCount: 1
+      EBSOptions:
+        EBSEnabled: true
+        VolumeType: "gp2"
+        VolumeSize: 10
+
+  ClientBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Ref "ClientBucketName"
+      AccessControl: "PublicRead"
+      WebsiteConfiguration:
+        IndexDocument: "index.html"
+        ErrorDocument: "index.html"
+
+  ClientBucketPolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Properties:
+      PolicyDocument:
+        Id: "PublicWebsitePolicy"
+        Statement:
+          - Sid: "PublicReadForGetBucketObjects"
+            Effect: "Allow"
+            Principal: "*"
+            Action: "s3:GetObject"
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${ClientBucket}/*"
+      Bucket: !Ref "ClientBucket"
+
+  AssetsBucket:
+    Type: "AWS::S3::Bucket"
+    DependsOn:
+      - "IndexLambdaInvokePermission"
+    Properties:
+      BucketName: !Ref "AssetsBucketName"
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: "s3:ObjectCreated:*"
+            Function: !GetAtt "IndexLambda.Arn"
+
+  IndexLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      FunctionName: !Ref "IndexLambdaName"
+      Handler: "lambda_function.lambda_handler"
+      Runtime: "python3.9"
+      Code:
+        S3Bucket: !Ref "LambdaCodeSourceBucket"
+        S3Key: !Sub "${IndexLambdaName}.zip"
+      PackageType: "Zip"
+      Role: !GetAtt "IndexLambdaExecutionRole.Arn"
+      MemorySize: 128
+      Timeout: 30
+      Environment:
+        Variables:
+          domainEndpoint: !GetAtt "PhotosDomain.DomainEndpoint"
+
+  SearchLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      FunctionName: !Ref "SearchLambdaName"
+      Handler: "lambda_function.lambda_handler"
+      Runtime: "python3.9"
+      Code:
+        S3Bucket: !Ref "LambdaCodeSourceBucket"
+        S3Key: !Sub "${SearchLambdaName}.zip"
+      PackageType: "Zip"
+      Role: !GetAtt "SearchLambdaExecutionRole.Arn"
+      MemorySize: 128
+      Timeout: 30
+      Environment:
+        Variables:
+          domainEndpoint: !GetAtt "PhotosDomain.DomainEndpoint"
+          lexBotId: !Ref "LexBotId"
+          lexBotAliasId: !Ref "LexBotAliasId"
+
+  IndexLambdaExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      Path: "/"
+      RoleName: !Sub "${AWS::StackName}-${IndexLambdaName}-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - "arn:aws:iam::aws:policy/AmazonRekognitionReadOnlyAccess"
+      Policies:
+        - PolicyName: !Sub "${AWS::StackName}-${IndexLambdaName}-lambda-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:GetObject"
+                  - "s3:ListBucket"
+                  - "s3:GetBucketLocation"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetLifecycleConfiguration"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${AssetsBucketName}"
+                  - !Sub "arn:${AWS::Partition}:s3:::${AssetsBucketName}/*"
+              - Effect: "Allow"
+                Action:
+                  - "es:ESHttpPut"
+                Resource:
+                  - !Sub "${PhotosDomain.Arn}"
+                  - !Sub "${PhotosDomain.Arn}/*"
+
+  SearchLambdaExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      Path: "/"
+      RoleName: !Sub "${AWS::StackName}-${SearchLambdaName}-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - "arn:aws:iam::aws:policy/AmazonLexRunBotsOnly"
+      Policies:
+        - PolicyName: !Sub "${AWS::StackName}-${SearchLambdaName}-lambda-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "es:ESHttpPost"
+                Resource:
+                  - !Sub "${PhotosDomain.Arn}"
+                  - !Sub "${PhotosDomain.Arn}/*"
+              - Effect: "Allow"
+                Action:
+                  - "s3:GetObject"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${AssetsBucketName}"
+                  - !Sub "arn:${AWS::Partition}:s3:::${AssetsBucketName}/*"
+
+  IndexLambdaInvokePermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !GetAtt "IndexLambda.Arn"
+      Action: "lambda:InvokeFunction"
+      Principal: "s3.amazonaws.com"
+      SourceAccount: !Ref "AWS::AccountId"
+      SourceArn: !Sub "arn:${AWS::Partition}:s3:::${AssetsBucketName}"
+
+  SearchLambdaInvokePermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !GetAtt "SearchLambda.Arn"
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceAccount: !Ref "AWS::AccountId"
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api.RestApiId}/*/GET/search"
+
+  IndexLambdaLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${IndexLambdaName}"
+
+  SearchLambdaLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${SearchLambdaName}"
+
+  Api:
+    Type: "AWS::ApiGateway::RestApi"
+    Properties:
+      Name: !Ref "ApiName"
+      BinaryMediaTypes:
+        - "image/jpeg"
+        - "image/jpg"
+        - "image/png"
+      EndpointConfiguration:
+        Types:
+          - "REGIONAL"
+
+  ApiDeployment:
+    Type: "AWS::ApiGateway::Deployment"
+    DependsOn:
+      - "ApiSearchGetMethod"
+      - "ApiUploadPutMethod"
+    Properties:
+      RestApiId: !Ref "Api"
+      StageName: "v1"
+
+  ApiSearchResource:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      ParentId: !GetAtt "Api.RootResourceId"
+      PathPart: "search"
+      RestApiId: !Ref "Api"
+
+  ApiSearchGetMethod:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      AuthorizationType: "NONE"
+      ApiKeyRequired: false
+      HttpMethod: "GET"
+      RestApiId: !Ref "Api"
+      ResourceId: !Ref "ApiSearchResource"
+      RequestParameters:
+        "method.request.querystring.q": true
+      Integration:
+        Type: "AWS_PROXY"
+        IntegrationHttpMethod: "POST"
+        IntegrationResponses:
+          - StatusCode: "200"
+        Uri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SearchLambda.Arn}/invocations"
+
+  ApiUploadResource:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      ParentId: !GetAtt "Api.RootResourceId"
+      PathPart: "upload"
+      RestApiId: !Ref "Api"
+
+  ApiUploadPutMethod:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      AuthorizationType: "NONE"
+      ApiKeyRequired: false
+      HttpMethod: "PUT"
+      RestApiId: !Ref "Api"
+      ResourceId: !Ref "ApiUploadResource"
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Origin": false
+      RequestParameters:
+        "method.request.header.key": true
+        "method.request.header.Content-Type": false
+        "method.request.header.x-amz-meta-customLabels": false
+      Integration:
+        Type: "AWS"
+        Credentials: !GetAtt "ApiUploadPutIntegrationRole.Arn"
+        IntegrationHttpMethod: "PUT"
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              "method.response.header.Access-Control-Allow-Origin": "'*'"
+        RequestParameters:
+          "integration.request.path.key": "method.request.header.key"
+          "integration.request.header.Content-Type": "method.request.header.Content-Type"
+          "integration.request.header.x-amz-meta-customLabels": "method.request.header.x-amz-meta-customLabels"
+        Uri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:s3:path/${AssetsBucketName}/{key}"
+
+  ApiUploadOptionsMethod:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      AuthorizationType: "NONE"
+      ApiKeyRequired: false
+      HttpMethod: "OPTIONS"
+      RestApiId: !Ref "Api"
+      ResourceId: !Ref "ApiUploadResource"
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseModels:
+            "application/json": "Empty"
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+      Integration:
+        Type: "MOCK"
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,Key,X-Amz-Meta-CustomLabels'"
+              "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,PUT'"
+              "method.response.header.Access-Control-Allow-Origin": "'*'"
+        PassthroughBehavior: "WHEN_NO_MATCH"
+        RequestTemplates:
+          "application/json": '{"statusCode": 200}'
+
+  ApiUploadPutIntegrationRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      Path: "/"
+      RoleName: !Sub "${AWS::StackName}-upload-api-method-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "apigateway.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub "${AWS::StackName}-upload-api-method-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:PutObject"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${AssetsBucketName}/*"
+
+Outputs:
+  WebsiteURL:
+    Value: !GetAtt "ClientBucket.WebsiteURL"
+  ClientBucket:
+    Value: !Ref "ClientBucket"
+    Export:
+      Name: "ClientBucket"
