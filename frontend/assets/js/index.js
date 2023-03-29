@@ -64,7 +64,7 @@ function displayPhotos(words) {
   sdk
     .searchGet({
       q: words,
-      "x-api-key": "89jZNsHr4T2nclZRBHMeb8ddhHdour8t91FNhlZM",
+      "x-api-key": "3VJycgA6Fv2wEA5fFUGvV5qDglxRzE2f6ZGo5tGU",
     })
     .then((response) => {
       imgs.innerHTML = "";
@@ -107,7 +107,7 @@ function uploadImg() {
           key: file.name,
           "Content-Type": file.type,
           "x-amz-meta-customLabels": labels.value,
-          "x-api-key": "89jZNsHr4T2nclZRBHMeb8ddhHdour8t91FNhlZM",
+          "x-api-key": "3VJycgA6Fv2wEA5fFUGvV5qDglxRzE2f6ZGo5tGU",
         },
         file
       )
