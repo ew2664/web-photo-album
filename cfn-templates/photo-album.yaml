@@ -238,6 +238,8 @@ Resources:
 
   ApiUsagePlan:
     Type: "AWS::ApiGateway::UsagePlan"
+    DependsOn:
+      - "ApiDeployment"
     Properties:
       ApiStages:
         - ApiId: !Ref "Api"
