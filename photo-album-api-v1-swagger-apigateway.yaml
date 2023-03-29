@@ -1,0 +1,145 @@
+---
+swagger: "2.0"
+info:
+  version: "2023-03-29T22:29:06Z"
+  title: "photo-album-api"
+host: "cxzxfvsgg9.execute-api.us-east-1.amazonaws.com"
+basePath: "/v1"
+schemes:
+- "https"
+paths:
+  /search:
+    get:
+      parameters:
+      - name: "x-api-key"
+        in: "header"
+        required: false
+        type: "string"
+      - name: "q"
+        in: "query"
+        required: true
+        type: "string"
+      responses: {}
+      security:
+      - api_key: []
+      x-amazon-apigateway-integration:
+        httpMethod: "POST"
+        uri: "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:662545362847:function:search-photos/invocations"
+        responses:
+          default:
+            statusCode: "200"
+        passthroughBehavior: "when_no_match"
+        type: "aws_proxy"
+    options:
+      consumes:
+      - "application/json"
+      produces:
+      - "application/json"
+      responses:
+        "200":
+          description: "200 response"
+          schema:
+            $ref: "#/definitions/Empty"
+          headers:
+            Access-Control-Allow-Origin:
+              type: "string"
+            Access-Control-Allow-Methods:
+              type: "string"
+            Access-Control-Allow-Headers:
+              type: "string"
+      x-amazon-apigateway-integration:
+        responses:
+          default:
+            statusCode: "200"
+            responseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,PUT'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        requestTemplates:
+          application/json: "{\"statusCode\": 200}"
+        passthroughBehavior: "when_no_match"
+        type: "mock"
+  /upload:
+    put:
+      parameters:
+      - name: "Content-Type"
+        in: "header"
+        required: false
+        type: "string"
+      - name: "key"
+        in: "header"
+        required: true
+        type: "string"
+      - name: "x-amz-meta-customLabels"
+        in: "header"
+        required: false
+        type: "string"
+      - name: "x-api-key"
+        in: "header"
+        required: false
+        type: "string"
+      responses:
+        "200":
+          description: "200 response"
+          headers:
+            Access-Control-Allow-Origin:
+              type: "string"
+      security:
+      - api_key: []
+      x-amazon-apigateway-integration:
+        credentials: "arn:aws:iam::662545362847:role/photo-album-upload-api-method-role"
+        httpMethod: "PUT"
+        uri: "arn:aws:apigateway:us-east-1:s3:path/photo-album-assets/{key}"
+        responses:
+          default:
+            statusCode: "200"
+            responseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        requestParameters:
+          integration.request.header.x-amz-meta-customLabels: "method.request.header.x-amz-meta-customLabels"
+          integration.request.path.key: "method.request.header.key"
+          integration.request.header.Content-Type: "method.request.header.Content-Type"
+        passthroughBehavior: "when_no_match"
+        type: "aws"
+    options:
+      consumes:
+      - "application/json"
+      produces:
+      - "application/json"
+      responses:
+        "200":
+          description: "200 response"
+          schema:
+            $ref: "#/definitions/Empty"
+          headers:
+            Access-Control-Allow-Origin:
+              type: "string"
+            Access-Control-Allow-Methods:
+              type: "string"
+            Access-Control-Allow-Headers:
+              type: "string"
+      x-amazon-apigateway-integration:
+        responses:
+          default:
+            statusCode: "200"
+            responseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,PUT'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,Key,X-Amz-Meta-CustomLabels'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        requestTemplates:
+          application/json: "{\"statusCode\": 200}"
+        passthroughBehavior: "when_no_match"
+        type: "mock"
+securityDefinitions:
+  api_key:
+    type: "apiKey"
+    name: "x-api-key"
+    in: "header"
+definitions:
+  Empty:
+    type: "object"
+    title: "Empty Schema"
+x-amazon-apigateway-binary-media-types:
+- "image/jpeg"
+- "image/jpg"
+- "image/png"
