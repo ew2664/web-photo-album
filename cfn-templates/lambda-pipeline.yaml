@@ -30,6 +30,7 @@ Resources:
           phases:
             build:
               commands:
+                - echo Building lambda functions
                 - (cd lambda-functions && ./package.sh index-photos)
                 - (cd lambda-functions && ./package.sh search-photos)
             post_build:
@@ -62,6 +63,7 @@ Resources:
           phases:
             build:
               commands:
+                - echo Deploying lambda functions
                 - aws lambda update-function-code --function-name index-photos --zip-file fileb://index-photos.zip
                 - aws lambda update-function-code --function-name search-photos --zip-file fileb://search-photos.zip
       Environment:

@@ -29,6 +29,7 @@ Resources:
             build:
               commands:
                 - echo Building frontend
+                - echo Deploying frontend
                 - aws s3 cp ./frontend s3://$CLIENT_BUCKET --recursive
       Environment:
         ComputeType: "BUILD_GENERAL1_SMALL"
