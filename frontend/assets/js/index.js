@@ -10,6 +10,8 @@ const fileMsg = document.getElementById("fileMsg");
 const uploadResult = document.getElementById("uploadResult");
 const searchId = document.getElementById("searchId");
 
+const API_KEY = "gUUbLzTZut4UrHvqu27b4avEvCIVuGJVaddUg43z";
+
 let imgsArray = [];
 
 $(window).on("keydown", function (e) {
@@ -64,7 +66,7 @@ function displayPhotos(words) {
   sdk
     .searchGet({
       q: words,
-      "x-api-key": "3VJycgA6Fv2wEA5fFUGvV5qDglxRzE2f6ZGo5tGU",
+      "x-api-key": API_KEY,
     })
     .then((response) => {
       imgs.innerHTML = "";
@@ -107,7 +109,7 @@ function uploadImg() {
           key: file.name,
           "Content-Type": file.type,
           "x-amz-meta-customLabels": labels.value,
-          "x-api-key": "3VJycgA6Fv2wEA5fFUGvV5qDglxRzE2f6ZGo5tGU",
+          "x-api-key": API_KEY,
         },
         file
       )
